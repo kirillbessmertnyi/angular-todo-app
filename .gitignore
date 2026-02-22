@@ -3,3 +3,5 @@ playwright-report/
 .angular/
 test-results/
 src/
+allure-results/
+allure-report/
