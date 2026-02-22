@@ -109,50 +109,45 @@ push / PR / manual trigger
         ├─ e2e (firefox)   ─┼─ parallel matrix ──► allure-results-* artifacts
         └─ e2e (webkit)    ─┘
                               │
-                         report job
+                         report job (always runs)
                               │
-                    ┌─────────┴──────────┐
-                    │  merge results     │
-                    │  restore history   │
-                    │  allure generate   │
-                    └─────────┬──────────┘
+                    ┌─────────┴──────────────┐
+                    │  download allure-history│  ← from previous run
+                    │  merge browser results  │
+                    │  allure generate        │
+                    │  save allure-history    │  → for next run
+                    └─────────┬──────────────┘
                               │
-               ┌──────────────┴──────────────┐
-               │                             │
-        upload artifact              deploy to gh-pages
-        (allure-report)            (main branch only)
-        always available             live online report
+               ┌──────────────┴────────────────────┐
+               │                                   │
+        upload allure-report             write Job Summary
+        artifact (30 days)           visible in Actions UI
+        interactive HTML               without download
 ```
 
 ### Triggers
 
-| Event | Tests run | Report deployed |
-|-------|-----------|----------------|
-| Push to `main` | ✅ all 3 browsers | ✅ GitHub Pages |
-| Pull Request | ✅ all 3 browsers | ❌ artifact only |
-| Manual (`workflow_dispatch`) | ✅ all 3 browsers | ✅ if on `main` |
+| Event | Tests run | Report available |
+|-------|-----------|-----------------|
+| Push to `main` | ✅ all 3 browsers | artifact + job summary |
+| Pull Request | ✅ all 3 browsers | artifact + job summary |
+| Manual (`workflow_dispatch`) | ✅ all 3 browsers | artifact + job summary |
 
 ### Viewing the report
 
-**Online (after push to main):**
-```
-https://<your-username>.github.io/<repo-name>/
-```
+**Job Summary — no download needed:**
+Actions → select run → **Summary** tab
 
-**From Actions tab (PRs and any run):**
-Actions → select run → Artifacts → download `allure-report` → open `index.html`
+The summary shows a pass/fail table and a list of failed tests directly in the GitHub UI.
 
-### One-time GitHub Pages setup
+**Full interactive Allure report:**
+Actions → select run → Artifacts section → download **`allure-report`** → open `index.html` locally.
 
-1. Push to `main` at least once — the workflow creates the `gh-pages` branch automatically.
-2. In the repository: **Settings → Pages → Source → Deploy from a branch**.
-3. Select branch: `gh-pages`, folder: `/ (root)`. Save.
-
-> The report URL appears in the Actions run summary after the first successful deployment.
+> No external hosting service is required. Everything works on free GitHub plans with public and private repositories.
 
 ### Allure history (trend graphs)
 
-On every push to `main` the workflow checks out the previous `gh-pages` content and copies `history/` into `allure-results/` before generating the new report. This populates the **Trend**, **Retry**, and **Duration** graphs across runs.
+History is persisted via the `allure-history` artifact (retained 90 days). On each run the workflow downloads the previous history, passes it to `allure generate`, then saves the updated history. This populates **Trend**, **Retry**, and **Duration** graphs across runs without any external storage.
 
 ---
 

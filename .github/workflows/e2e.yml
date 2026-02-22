@@ -15,14 +15,14 @@ concurrency:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
-  # JOB 1: run tests and collect results
+  # JOB 1: run tests in parallel per browser
   # ─────────────────────────────────────────────────────────────────────────────
   e2e:
     name: Playwright E2E (${{ matrix.browser }})
     runs-on: ubuntu-latest
 
     strategy:
-      fail-fast: false        # all browsers run even if one fails
+      fail-fast: false      # all browsers run even if one fails
       matrix:
         browser: [chromium, firefox, webkit]
 
@@ -43,15 +43,14 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Run E2E tests
-        # continue-on-error lets the workflow proceed to report generation
-        # even when tests fail — the exit code is captured via outcome below.
+        # continue-on-error so we can upload artifacts before failing the job
         run: npx playwright test --project=${{ matrix.browser }}
         continue-on-error: true
         env:
           CI: true
         id: tests
 
-      # Raw Allure XML — collected per browser, merged in the report job
+      # Raw Allure XML — one artifact per browser, merged in the report job
       - name: Upload Allure results
         uses: actions/upload-artifact@v4
         if: always()
@@ -60,7 +59,7 @@ jobs:
           path: allure-results/
           retention-days: 5
 
-      # Playwright traces are only useful on failure
+      # Playwright traces are attached only on failure for debugging
       - name: Upload Playwright traces
         uses: actions/upload-artifact@v4
         if: steps.tests.outcome == 'failure'
@@ -69,25 +68,20 @@ jobs:
           path: test-results/
           retention-days: 7
 
-      # Fail the job AFTER artifacts are saved, so CI status is meaningful
+      # Fail the job AFTER artifacts are saved so CI badge is accurate
       - name: Fail if tests failed
         if: steps.tests.outcome == 'failure'
         run: exit 1
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # JOB 2: merge results, generate report, publish to GitHub Pages
+  # JOB 2: merge results, generate report, write job summary, upload artifact
   # ─────────────────────────────────────────────────────────────────────────────
   report:
-    name: Generate & Publish Allure Report
+    name: Generate Allure Report
     runs-on: ubuntu-latest
     needs: e2e
-    # Run even when tests fail so the report is always available
+    # Always run so the report is generated even when tests fail
     if: always()
-
-    permissions:
-      contents: write   # needed to push to gh-pages branch
-      pages: write
-      id-token: write
 
     steps:
       - name: Checkout repository
@@ -102,27 +96,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ── Restore Allure history from the previous gh-pages deployment ──────────
-      # This powers the "Trend" and "History" graphs in the Allure dashboard.
-      - name: Restore Allure history
-        uses: actions/checkout@v4
-        continue-on-error: true   # first run: gh-pages branch doesn't exist yet
+      # ── Restore Allure history for trend / retry graphs ───────────────────────
+      # History is stored as an artifact from the previous run so it works
+      # without GitHub Pages and without any external service.
+      - name: Download previous Allure history
+        uses: actions/download-artifact@v4
+        continue-on-error: true   # first run: artifact doesn't exist yet
         with:
-          ref: gh-pages
-          path: gh-pages-prev
+          name: allure-history
+          path: allure-results/history
 
-      - name: Copy history into allure-results
-        continue-on-error: true
-        run: |
-          mkdir -p allure-results
-          if [ -d gh-pages-prev/history ]; then
-            cp -r gh-pages-prev/history allure-results/history
-            echo "Allure history restored from previous run."
-          else
-            echo "No previous history found — first run."
-          fi
-
-      # ── Download and merge results from all browser jobs ─────────────────────
+      # ── Download and merge raw results from all three browser jobs ────────────
       - name: Download Allure results (chromium)
         uses: actions/download-artifact@v4
         with:
@@ -141,22 +125,23 @@ jobs:
           name: allure-results-webkit
           path: allure-results
 
-      # ── Generate the HTML report ──────────────────────────────────────────────
+      # ── Generate the Allure HTML report ───────────────────────────────────────
       - name: Generate Allure report
         run: npm run allure:generate
 
-      # ── Add a simple index redirect so the Pages root goes to the report ──────
-      - name: Create Pages root index
-        run: |
-          cat > allure-report/index-redirect.html <<'EOF'
-          <!doctype html>
-          <html><head>
-          <meta http-equiv="refresh" content="0;url=./index.html">
-          </head><body>Redirecting…</body></html>
-          EOF
+      # ── Persist history for the next run ─────────────────────────────────────
+      # The history/ folder inside allure-report/ is saved as its own artifact
+      # and downloaded at the start of the next run (step above).
+      - name: Save Allure history for next run
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-history
+          path: allure-report/history/
+          retention-days: 90
 
-      # ── Upload the rendered report as a downloadable artifact (always) ────────
-      - name: Upload Allure HTML report artifact
+      # ── Upload the full rendered HTML report as a downloadable artifact ───────
+      - name: Upload Allure HTML report
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -164,16 +149,53 @@ jobs:
           path: allure-report/
           retention-days: 30
 
-      # ── Deploy to GitHub Pages (main branch only) ─────────────────────────────
-      # The live report is accessible at:
-      #   https://<owner>.github.io/<repo>/
-      # Enable Pages in repo Settings → Pages → Source: Deploy from branch → gh-pages
-      - name: Deploy to GitHub Pages
-        if: github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: allure-report
-          publish_branch: gh-pages
-          commit_message: |
-            chore: update Allure report [run ${{ github.run_number }}]
+      # ── Write a rich Job Summary visible directly in the Actions UI ───────────
+      # No external service required — the summary is always readable at
+      #   Actions → <run> → Summary
+      # without downloading anything.
+      - name: Write Job Summary
+        if: always()
+        run: |
+          node - <<'EOF'
+          const fs   = require('fs');
+          const path = require('path');
+
+          const dir = 'allure-results';
+          const files = fs.readdirSync(dir).filter(f => f.endsWith('-result.json'));
+
+          const results = files
+            .map(f => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; } })
+            .filter(Boolean);
+
+          const count = s => results.filter(r => r.status === s).length;
+          const passed  = count('passed');
+          const failed  = count('failed');
+          const broken  = count('broken');
+          const skipped = count('skipped');
+          const total   = results.length;
+          const ok      = failed + broken === 0;
+
+          const getLabel = (r, name) => (r.labels || []).find(l => l.name === name)?.value || '—';
+
+          let md = `## ${ok ? '✅' : '❌'} E2E Test Results — run #${process.env.GITHUB_RUN_NUMBER}\n\n`;
+          md += `| ✅ Passed | ❌ Failed | 💥 Broken | ⏭ Skipped | Total |\n`;
+          md += `|----------|----------|----------|----------|-------|\n`;
+          md += `| ${passed} | ${failed} | ${broken} | ${skipped} | **${total}** |\n\n`;
+
+          const failedTests = results.filter(r => r.status === 'failed' || r.status === 'broken');
+          if (failedTests.length) {
+            md += `### Failed / Broken Tests\n\n`;
+            md += `| Test | Suite | Message |\n|------|-------|---------|\n`;
+            failedTests.forEach(r => {
+              const suite = getLabel(r, 'suite');
+              const msg   = (r.statusDetails?.message || '').replace(/\n/g, ' ').substring(0, 120);
+              md += `| ${r.name} | ${suite} | \`${msg}\` |\n`;
+            });
+            md += '\n';
+          }
+
+          md += `> 📦 **Full interactive Allure report**: download the \`allure-report\` artifact from this run and open \`index.html\`.\n`;
+
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+          console.log('Job summary written.');
+          EOF
