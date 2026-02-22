@@ -96,6 +96,66 @@ npm run allure:serve
 
 ---
 
+## CI/CD — GitHub Actions
+
+The workflow file is at [.github/workflows/e2e.yml](.github/workflows/e2e.yml).
+
+### What it does
+
+```
+push / PR / manual trigger
+        │
+        ├─ e2e (chromium)  ─┐
+        ├─ e2e (firefox)   ─┼─ parallel matrix ──► allure-results-* artifacts
+        └─ e2e (webkit)    ─┘
+                              │
+                         report job
+                              │
+                    ┌─────────┴──────────┐
+                    │  merge results     │
+                    │  restore history   │
+                    │  allure generate   │
+                    └─────────┬──────────┘
+                              │
+               ┌──────────────┴──────────────┐
+               │                             │
+        upload artifact              deploy to gh-pages
+        (allure-report)            (main branch only)
+        always available             live online report
+```
+
+### Triggers
+
+| Event | Tests run | Report deployed |
+|-------|-----------|----------------|
+| Push to `main` | ✅ all 3 browsers | ✅ GitHub Pages |
+| Pull Request | ✅ all 3 browsers | ❌ artifact only |
+| Manual (`workflow_dispatch`) | ✅ all 3 browsers | ✅ if on `main` |
+
+### Viewing the report
+
+**Online (after push to main):**
+```
+https://<your-username>.github.io/<repo-name>/
+```
+
+**From Actions tab (PRs and any run):**
+Actions → select run → Artifacts → download `allure-report` → open `index.html`
+
+### One-time GitHub Pages setup
+
+1. Push to `main` at least once — the workflow creates the `gh-pages` branch automatically.
+2. In the repository: **Settings → Pages → Source → Deploy from a branch**.
+3. Select branch: `gh-pages`, folder: `/ (root)`. Save.
+
+> The report URL appears in the Actions run summary after the first successful deployment.
+
+### Allure history (trend graphs)
+
+On every push to `main` the workflow checks out the previous `gh-pages` content and copies `history/` into `allure-results/` before generating the new report. This populates the **Trend**, **Retry**, and **Duration** graphs across runs.
+
+---
+
 ## Test Structure
 
 ```
