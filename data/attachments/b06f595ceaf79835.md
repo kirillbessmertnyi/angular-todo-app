@@ -1,0 +1,14 @@
+# Page snapshot
+
+```yaml
+- heading "Todo List" [level=1]
+- textbox "What needs to be done?"
+- button "Add"
+- button "All"
+- button "Active"
+- button "Completed"
+- checkbox
+- text: Original title
+- button "Edit"
+- button "Delete"
+```
