@@ -167,29 +167,58 @@ jobs:
             .map(f => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; } })
             .filter(Boolean);
 
-          const count = s => results.filter(r => r.status === s).length;
-          const passed  = count('passed');
-          const failed  = count('failed');
-          const broken  = count('broken');
-          const skipped = count('skipped');
-          const total   = results.length;
-          const ok      = failed + broken === 0;
+          const getLabel  = (r, name) => (r.labels || []).find(l => l.name === name)?.value || '—';
+          const getParam  = (r, name) => (r.parameters || []).find(p => p.name === name)?.value || '—';
+          const getBrowser = r => getParam(r, 'Project') !== '—' ? getParam(r, 'Project') : getLabel(r, 'parentSuite');
 
-          const getLabel = (r, name) => (r.labels || []).find(l => l.name === name)?.value || '—';
+          // ── Per-browser stats ───────────────────────────────────────────────────
+          const BROWSERS = ['chromium', 'firefox', 'webkit'];
+          const byBrowser = {};
+          for (const b of BROWSERS) {
+            const br = results.filter(r => getBrowser(r) === b);
+            byBrowser[b] = {
+              passed:  br.filter(r => r.status === 'passed').length,
+              failed:  br.filter(r => r.status === 'failed').length,
+              broken:  br.filter(r => r.status === 'broken').length,
+              skipped: br.filter(r => r.status === 'skipped').length,
+              total:   br.length,
+            };
+          }
+
+          const sum = key => BROWSERS.reduce((acc, b) => acc + byBrowser[b][key], 0);
+          const totalPassed  = sum('passed');
+          const totalFailed  = sum('failed');
+          const totalBroken  = sum('broken');
+          const totalSkipped = sum('skipped');
+          const total        = results.length;
+          const ok           = totalFailed + totalBroken === 0;
+
+          const browserIcon = { chromium: '🟡', firefox: '🦊', webkit: '🍎' };
+          const capitalize  = s => s.charAt(0).toUpperCase() + s.slice(1);
 
           let md = `## ${ok ? '✅' : '❌'} E2E Test Results — run #${process.env.GITHUB_RUN_NUMBER}\n\n`;
-          md += `| ✅ Passed | ❌ Failed | 💥 Broken | ⏭ Skipped | Total |\n`;
-          md += `|----------|----------|----------|----------|-------|\n`;
-          md += `| ${passed} | ${failed} | ${broken} | ${skipped} | **${total}** |\n\n`;
 
+          // ── Summary table with per-browser rows ─────────────────────────────────
+          md += `| Browser | ✅ Passed | ❌ Failed | 💥 Broken | ⏭ Skipped | Total |\n`;
+          md += `|---------|----------|----------|----------|----------|-------|\n`;
+          for (const b of BROWSERS) {
+            const s = byBrowser[b];
+            md += `| ${browserIcon[b]} ${capitalize(b)} | ${s.passed} | ${s.failed} | ${s.broken} | ${s.skipped} | ${s.total} |\n`;
+          }
+          md += `| **All** | **${totalPassed}** | **${totalFailed}** | **${totalBroken}** | **${totalSkipped}** | **${total}** |\n\n`;
+
+          // ── Failed / Broken tests table with browser column ──────────────────────
           const failedTests = results.filter(r => r.status === 'failed' || r.status === 'broken');
           if (failedTests.length) {
-            md += `### Failed / Broken Tests\n\n`;
-            md += `| Test | Suite | Message |\n|------|-------|---------|\n`;
+            md += `### ❌ Failed / Broken Tests\n\n`;
+            md += `| Browser | Test | Suite | Error |\n`;
+            md += `|---------|------|-------|-------|\n`;
             failedTests.forEach(r => {
-              const suite = getLabel(r, 'suite');
-              const msg   = (r.statusDetails?.message || '').replace(/\n/g, ' ').substring(0, 120);
-              md += `| ${r.name} | ${suite} | \`${msg}\` |\n`;
+              const browser = getBrowser(r);
+              const icon    = browserIcon[browser] || '🌐';
+              const suite   = getLabel(r, 'suite');
+              const msg     = (r.statusDetails?.message || '').replace(/\n/g, ' ').substring(0, 100);
+              md += `| ${icon} ${capitalize(browser)} | ${r.name} | ${suite} | \`${msg}\` |\n`;
             });
             md += '\n';
           }
