@@ -197,11 +197,19 @@ jobs:
           const runUrl      = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
           const artifactUrl = `${runUrl}#artifacts`;
           md += `---\n\n`;
-          md += `### 📦 Download Allure Report\n\n`;
+          md += `### 📦 Download & View Allure Report\n\n`;
           md += `[**⬇ Open this run's artifacts page**](${artifactUrl})\n\n`;
-          md += `1. Click the link above.\n`;
-          md += `2. Download the **\`allure-report\`** artifact.\n`;
-          md += `3. Unzip and open **\`index.html\`** in your browser.\n`;
+          md += `> ⚠️ **Do not open \`index.html\` directly** — browsers block \`fetch()\` on \`file://\` and the report will appear empty.\n`;
+          md += `> Always serve the report through a local HTTP server.\n\n`;
+          md += `\`\`\`bash\n`;
+          md += `# 1. Download and unzip the allure-report artifact, then:\n\n`;
+          md += `# Option A — if you have the project checked out (recommended):\n`;
+          md += `cp -r /path/to/downloaded/allure-report ./allure-report\n`;
+          md += `npm run allure:open          # starts a local server and opens the browser\n\n`;
+          md += `# Option B — any machine with Node.js, no project needed:\n`;
+          md += `npx serve /path/to/allure-report -l 8080\n`;
+          md += `# then open http://localhost:8080\n\n`;
+          md += `\`\`\`\n`;
 
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
           console.log('Job summary written.');

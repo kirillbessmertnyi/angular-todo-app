@@ -141,7 +141,20 @@ Actions → select run → **Summary** tab
 The summary shows a pass/fail table and a list of failed tests directly in the GitHub UI.
 
 **Full interactive Allure report:**
-Actions → select run → Artifacts section → download **`allure-report`** → open `index.html` locally.
+Actions → select run → Artifacts section → download **`allure-report`** → serve locally (see below).
+
+> ⚠️ **Do not open `index.html` directly from the filesystem.** Allure loads its data through `fetch()`, which browsers block on the `file://` protocol — the report will appear empty. Always use a local HTTP server.
+
+```bash
+# After unzipping allure-report into the project root:
+
+# Option A — via allure CLI (recommended, opens browser automatically)
+npm run allure:open
+
+# Option B — via npm script (useful for a downloaded artifact)
+npm run allure:serve-ci     # serves on http://localhost:8080
+
+```
 
 > No external hosting service is required. Everything works on free GitHub plans with public and private repositories.
 

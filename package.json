@@ -9,6 +9,7 @@
     "allure:generate": "allure generate allure-results --clean -o allure-report",
     "allure:open": "allure open allure-report",
     "allure:serve": "allure serve allure-results",
+    "allure:serve-ci": "npx serve allure-report -l 8080",
     "allure": "npm run test:e2e && npm run allure:generate && npm run allure:open"
   },
   "dependencies": {
