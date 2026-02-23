@@ -194,7 +194,14 @@ jobs:
             md += '\n';
           }
 
-          md += `> 📦 **Full interactive Allure report**: download the \`allure-report\` artifact from this run and open \`index.html\`.\n`;
+          const runUrl      = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const artifactUrl = `${runUrl}#artifacts`;
+          md += `---\n\n`;
+          md += `### 📦 Download Allure Report\n\n`;
+          md += `[**⬇ Open this run's artifacts page**](${artifactUrl})\n\n`;
+          md += `1. Click the link above.\n`;
+          md += `2. Download the **\`allure-report\`** artifact.\n`;
+          md += `3. Unzip and open **\`index.html\`** in your browser.\n`;
 
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
           console.log('Job summary written.');
