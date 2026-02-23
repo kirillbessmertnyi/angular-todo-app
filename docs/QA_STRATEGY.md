@@ -1,160 +1,169 @@
-# QA Strategy — Angular ToDo App
-
-This document answers the key architectural and strategic questions behind the test automation approach chosen for this project.
+# QA-стратегия — вопросы и ответы
 
 ---
 
-## 1. Pattern Choice: Page Object Model
+## 1. Стратегия тестирования
 
-### Why POM?
+**Вопрос:** Как бы вы организовали процесс тестирования для продукта с 5 разработчиками и 2 QA-инженерами? Какие виды тестирования внедрили бы в первую очередь?
 
-The Page Object Model was chosen over alternatives such as Screenplay or plain helper functions for the following reasons:
+### Общий подход
 
-| Criterion | POM | Screenplay | Plain helpers |
-|-----------|-----|-----------|---------------|
-| Learning curve | Low | High | Very low |
-| Maintainability | High | Very high | Low |
-| Reusability | Medium | High | Medium |
-| Appropriate for project size | ✓ Single-screen SPA | Overkill | Insufficient isolation |
+При команде 5 разработчиков и 2 QA главный риск — узкое место на стадии проверки. Чтобы его избежать, тестирование нужно сдвигать влево (shift-left): чем раньше дефект обнаружен, тем дешевле его устранение.
 
-**POM fits this project because:**
-- The application has a single view with a well-defined set of interactions (add, edit, delete, toggle, filter). A single `TodoPage` class cleanly models the entire UI.
-- Locator changes (e.g., a CSS class rename) require updates in exactly one place — the POM class — rather than across every test file.
-- The POM approach is the de facto Playwright standard, so it is immediately legible to any engineer joining the project.
+### Приоритет внедрения видов тестирования
 
-### How POM is applied here
+**1-я очередь — фундамент (первые 2–4 недели):**
 
-`tests/pages/todo.page.ts` exposes:
-- **Locator properties** (`taskList`, `errorMessage`, `filters`, …) — lazy Playwright `Locator` objects declared in the constructor.
-- **Action methods** (`addTask`, `editTask`, `deleteTask`, `toggleTask`, `filter`) — `async` methods that encapsulate multi-step interactions.
-- **`taskLocator(title)`** — a factory that returns a scoped `Locator` using `.filter({ has })` instead of fragile CSS string interpolation.
+| Вид тестирования | Ответственный | Обоснование |
+|-----------------|---------------|-------------|
+| Unit-тесты на критичную бизнес-логику | Разработчики | Самые быстрые и дешёвые; дают уверенность при рефакторинге |
+| Smoke-тесты (E2E, 5–10 сценариев) | QA | Проверяют, что продукт вообще запускается и базовые флоу не сломаны |
+| Ручное исследовательское тестирование | QA | Быстро покрывает белые пятна, пока автоматизация ещё не готова |
 
-Tests never access `page.locator()` directly; they consume only the POM's public API.
+**2-я очередь — расширение (1–2 месяца):**
 
----
+| Вид тестирования | Ответственный | Обоснование |
+|-----------------|---------------|-------------|
+| Integration-тесты API | QA + разработчики | Контракт между фронтом и бэком — частый источник дефектов |
+| Регрессионный E2E-набор (30–50 кейсов) | QA | Автоматизация критичных user story; запускается в CI |
+| Тестирование доступности (a11y) | QA | Дешевле внедрить сразу, чем переделывать потом |
 
-## 2. Working with the Asynchronous API
+**3-я очередь — зрелость (3+ месяца):**
 
-### The challenge
+- Performance-тесты (k6, Gatling) — до запуска нагрузочных фич.
+- Security-тесты (OWASP ZAP, ручной pentest основных флоу).
+- Visual regression (Playwright screenshots или Percy) — если UI-компонентов становится много.
 
-The application talks to the JSONPlaceholder REST API (`https://jsonplaceholder.typicode.com/todos`), which:
-- Accepts POST/PUT/DELETE but does **not persist** changes.
-- May introduce network latency.
-- Returns server-generated IDs that the UI depends on.
+### Процесс при 2 QA
 
-Running tests against the live API would make the suite:
-- **Non-deterministic** — latency and rate limits vary.
-- **Stateful** — shared global state across test runs.
-- **External-dependency-prone** — outages fail the entire suite.
-
-### The solution: `ApiMock` + `page.route()`
-
-`tests/helpers/api.mock.ts` defines `ApiMock`, a class that wraps `page.route()` to intercept all `/todos**` requests and return controlled, in-memory responses.
-
-Key design decisions:
-
-1. **Single route pattern** (`**/todos**`) handles GET, POST, PUT `/todos/:id`, and DELETE `/todos/:id` in one handler, dispatching by HTTP method and whether the URL contains a numeric path segment.
-2. **`setup()` always calls `page.unroute()` first**, so any test can override the default stub without accumulating stale handlers.
-3. **Callbacks (`onPost`, `onPut`, `onDelete`)** allow individual tests to inspect request payloads without global side effects.
-4. **Optional `delay` and `error` flags** simulate adverse network conditions in isolation.
-
-### Request/response assertions
-
-For tests that verify the exact payload sent to the server, `page.waitForRequest()` / `page.waitForResponse()` are used via `Promise.all`:
-
-```typescript
-const [request] = await Promise.all([
-  page.waitForRequest(req => req.url().includes('/todos') && req.method() === 'POST'),
-  todoPage.addTask('My task'),
-]);
-const body = await request.postDataJSON();
-expect(body).toMatchObject({ title: 'My task', completed: false });
-```
-
-This pattern:
-- **Eliminates timing issues** — the request is captured regardless of how fast the browser sends it.
-- **Is explicit** — the test documents that it cares about the outgoing network call.
-- **Avoids arbitrary `setTimeout` waits**.
+- **QA #1** — автоматизация и поддержка E2E-набора, CI-конфигурация, ревью тест-планов.
+- **QA #2** — ручное тестирование новых фич, исследовательское тестирование, баг-репорты.
+- Оба участвуют в груминге и ставят acceptance-критерии к задачам — это главный рычаг shift-left.
+- Раз в неделю — краткий retro по дефектам: откуда пришли баги, что пропустили, что ускорить.
 
 ---
 
-## 3. Test Project Organisation
+## 2. CI/CD — интеграция автотестов
 
-### Structure
+**Вопрос:** Опишите, как бы вы интегрировали автотесты в CI/CD пайплайн. Какие тесты запускать на каждый коммит, какие — перед релизом?
+
+### Принцип: скорость обратной связи важнее полноты
+
+Разработчик не должен ждать 30 минут, чтобы узнать, не сломал ли он чужой модуль. Поэтому пайплайн строится слоями — от быстрых к медленным.
+
+### Слои пайплайна
 
 ```
-tests/
-├── helpers/
-│   └── api.mock.ts        # Network interception abstraction
-├── pages/
-│   └── todo.page.ts       # Page Object — single source of truth for locators
-├── fixtures.ts            # Playwright custom fixtures (shared setup)
-├── crud.spec.ts           # TC-01–10: CRUD operations and filtering
-├── api-behavior.spec.ts   # TC-11–17: API contract and resilience
-└── validation.spec.ts     # TC-18–23: input validation and edge cases
+Каждый коммит (push / PR)
+├── Lint + type-check          ~1 мин    — мгновенная обратная связь
+├── Unit-тесты                 ~2–3 мин  — быстрые, изолированные
+└── Smoke E2E (5–10 тестов)   ~3–5 мин  — базовые флоу, 1 браузер
+
+Merge в main
+└── Полный регрессионный E2E  ~10–15 мин — все сценарии, 3 браузера (matrix)
+
+Перед релизом (release branch / tag)
+├── Полный E2E + performance   — нагрузка, время отклика
+├── Security-scan (ZAP)        — автоматический OWASP-анализ
+└── Smoke на staging-окружении — реальный бэкенд, не моки
 ```
 
-### Why split into three spec files?
+### Ключевые практики
 
-Each file maps to a **distinct testing concern**:
-- `crud.spec.ts` — does the UI behave correctly for happy-path user flows?
-- `api-behavior.spec.ts` — does the app communicate correctly with the backend?
-- `validation.spec.ts` — does the app reject invalid input and handle edge states?
+**Fail-fast для PR:** если lint или unit упали — E2E не запускается. Это экономит ресурсы и ускоряет фидбек.
 
-This separation means that a failing CI run can pinpoint the affected area immediately (`api-behavior.spec.ts` fails → backend integration issue; `validation.spec.ts` fails → front-end validation regression).
+**Параллельный матрикс для браузеров:** в данном проекте три job'а (Chromium / Firefox / WebKit) запускаются одновременно, результаты мержатся в один Allure-отчёт.
 
-### Fixtures instead of `beforeEach` + manual instantiation
+**`continue-on-error` + отложенный `exit 1`:** тесты могут упасть, но артефакты (трейсы, Allure XML) загружаются до того, как job помечается как failed — иначе при падении первого теста отчёт был бы недоступен.
 
-Playwright fixtures (`test.extend`) were chosen over `beforeEach` blocks that manually create page objects because:
-- The fixture is **injected by name**, making test dependencies explicit in the function signature.
-- The fixture's teardown (implicit — Playwright handles page lifecycle) is automatic.
-- Multiple fixtures (`apiMock`, `todoPage`) can be composed: `todoPage` depends on `apiMock`, so they share the same instance within a test.
+**Retry только на CI:** `retries: 2` на CI поглощает редкую flakiness (сетевые таймауты, медленный старт сервера). Локально retry отключён, чтобы не маскировать нестабильные тесты.
 
-```typescript
-// Every test that uses `todoPage` gets a pre-navigated page with an empty task list.
-test('TC-01', async ({ todoPage }) => {
-  await todoPage.addTask('Buy milk');
-  await expect(todoPage.taskLocator('Buy milk')).toBeVisible();
-});
-```
+**Allure-история между запусками:** история хранится как artifact (retention 90 дней) и скачивается в начале каждого report-job'а. Это обеспечивает тренд-графики без внешнего хранилища.
+
+**Моки внешних API на CI:** тесты используют `page.route()` для перехвата запросов к JSONPlaceholder. На CI нет зависимости от внешней сети — тесты детерминированы.
 
 ---
 
-## 4. Maintainability Principles Applied
+## 3. Метрики качества
 
-| Principle | Implementation |
-|-----------|---------------|
-| **Single responsibility** | `ApiMock` handles only routing; `TodoPage` handles only UI interactions; fixtures handle only setup/teardown. |
-| **DRY** | Common setup (stub + navigate) lives in the `todoPage` fixture, not repeated in every test. |
-| **Explicit assertions** | `expect(locator).toHaveCount(n)` with Playwright auto-retry instead of `resolves.toBe()` which has no retry. |
-| **No magic selectors** | `taskLocator(title)` uses `.filter({ has })` — safe for any title string, no CSS injection risk. |
-| **Fail-fast test IDs** | Every test is prefixed with `TC-XX` matching `TEST_CASES.md` for instant cross-reference. |
-| **Typed interfaces** | `MockOptions` and `Task` interfaces in `api.mock.ts` prevent silent misuse at compile time. |
+**Вопрос:** Какие метрики вы бы отслеживали для оценки качества продукта и эффективности QA-команды?
+
+### Метрики качества продукта
+
+| Метрика | Как считать | Целевое значение |
+|---------|-------------|-----------------|
+| **Defect Escape Rate** | Баги, найденные в проде / все баги за спринт | < 10% |
+| **Defect Detection Rate** | Баги, найденные QA до релиза / все баги | > 90% |
+| **Severity distribution** | Доля P0/P1-багов от общего числа | P0 → 0 в проде |
+| **MTTR** (Mean Time To Recovery) | Среднее время от обнаружения бага до деплоя фикса | < 4 часа для P0 |
+| **Flaky test rate** | Тесты с нестабильным результатом / весь набор | < 2% |
+
+### Метрики эффективности QA-процесса
+
+| Метрика | Что показывает |
+|---------|---------------|
+| **Test pass rate** | Доля зелёных тестов в CI — если падает, набор деградирует |
+| **Время цикла тестирования** | Сколько времени занимает полная регрессия; должно снижаться по мере автоматизации |
+| **Покрытие требований тестами** | Сколько user story имеют хотя бы один автотест |
+| **Стоимость дефекта по фазе** | Дефект на этапе разработки дешевле дефекта в проде в ~10–100 раз |
+| **Debt-индекс автотестов** | Количество сломанных / пропущенных тестов, которые не чинят |
+
+### Чего избегать
+
+- **"Quantity of tests" как KPI** — стимулирует писать бесполезные тесты ради счётчика.
+- **100% code coverage как цель** — покрытие не гарантирует качество; лучше 70% значимого покрытия, чем 100% формального.
+- **Метрики без контекста** — "5 багов за спринт" может быть отлично (сложный продукт) или плохо (простое приложение).
 
 ---
 
-## 5. CI / CD Considerations
+## 4. Развитие команды
 
-The `playwright.config.ts` is configured to:
-- Run tests in **parallel** (`fullyParallel: true`) on developer machines.
-- Use **single-worker** mode on CI (`workers: process.env.CI ? 1 : undefined`) to avoid resource contention.
-- **Retry twice on CI** (`retries: process.env.CI ? 2 : 0`) to absorb transient flakiness.
-- Generate an **HTML report** saved as a CI artefact for post-run inspection.
-- Start the Angular dev server automatically via `webServer` configuration.
+**Вопрос:** Как бы вы организовали онбординг нового QA-инженера? Какие навыки считаете ключевыми для QA в 2024–2025 году?
 
-To add the suite to a GitHub Actions workflow:
+### Онбординг: структура первого месяца
 
-```yaml
-- name: Install Playwright browsers
-  run: npx playwright install --with-deps
+**Неделя 1 — погружение в продукт:**
+- Самостоятельное прохождение всех user story вручную, без инструкций.
+- Знакомство с доменом: как устроен продукт, кто пользователь, какие флоу критичны.
+- Чтение существующей документации: TEST_PLAN, TEST_CASES, BUG_REPORTS, QA_STRATEGY.
+- Цель: написать свой первый баг-репорт по результатам исследовательского тестирования.
 
-- name: Run E2E tests
-  run: npm run test:e2e
+**Неделя 2 — инфраструктура:**
+- Поднять проект локально, запустить все тесты, открыть Allure-отчёт.
+- Разобраться с архитектурой тестов: POM, ApiMock, fixtures.
+- Code review одного существующего spec-файла с коментариями "что и почему".
+- Цель: самостоятельно добавить один новый тест-кейс.
 
-- name: Upload Playwright report
-  if: always()
-  uses: actions/upload-artifact@v4
-  with:
-    name: playwright-report
-    path: playwright-report/
-```
+**Неделя 3–4 — самостоятельная работа:**
+- Взять реальную задачу из бэклога (новая фича или баг) и провести полный цикл: тест-план → тест-кейсы → автотест → баг-репорт (если есть).
+- Участие в груминге — предлагать acceptance-критерии.
+- Ревью кода другого тест-инженера (если он есть) или разработчика.
+
+**Ключевой принцип онбординга:** не давать готовых инструкций на каждый шаг. Новый инженер должен самостоятельно задавать вопросы и исследовать — это развивает аналитическое мышление, которое и есть основа QA.
+
+### Ключевые навыки QA в 2024–2025
+
+**Технические (hard skills):**
+
+| Навык | Почему важен |
+|-------|-------------|
+| Playwright / Cypress (TypeScript) | Стандарт для E2E в веб; TypeScript устраняет целый класс ошибок в тестах |
+| API-тестирование (Postman, k6, REST Assured) | Большинство дефектов — в интеграции; API-тесты быстрее и стабильнее E2E |
+| Git + CI/CD (GitHub Actions, GitLab CI) | QA должен уметь читать и настраивать пайплайн, а не только запускать тесты |
+| SQL | Проверка данных напрямую в БД, а не только через UI |
+| Понимание архитектуры веб-приложений | HTTP, браузерный рендеринг, CORS, JWT — без этого сложно локализовать баги |
+
+**Профессиональные (soft skills):**
+
+| Навык | Почему важен |
+|-------|-------------|
+| Аналитическое мышление | QA — это не "ломать", а понимать, где система может не выдержать |
+| Коммуникация с разработчиками | Баг-репорт, написанный так, чтобы не нужно было переспрашивать |
+| Приоритизация | При ограниченном времени знать, что протестировать в первую очередь |
+| Понимание бизнес-контекста | Серьёзность дефекта определяется влиянием на пользователя, а не технической сложностью |
+
+**Тренды 2024–2025:**
+- **AI-assisted testing** — инструменты вроде Copilot и специализированные QA-агенты помогают генерировать кейсы и анализировать падения, но не заменяют инженерное мышление.
+- **Shift-left security** — базовые знания OWASP Top 10 становятся ожидаемым стандартом, а не бонусом.
+- **Observability в тестах** — понимание трейсов, логов, метрик как источника информации о поведении системы.
+- **Contract testing** (Pact) — при микросервисной архитектуре изолированная проверка API-контрактов между сервисами.
