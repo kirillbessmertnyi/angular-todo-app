@@ -96,6 +96,7 @@ export class TodoPage {
   }
 
   async getTasksText(): Promise<string[]> {
-    return this.page.locator('.task-list .task-item .task-title').allTextContents();
+    const texts = await this.page.locator('.task-list .task-item .task-title').allTextContents();
+    return texts.map((t) => t.trim());
   }
 }

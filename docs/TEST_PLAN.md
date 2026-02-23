@@ -88,11 +88,11 @@ This document defines the test plan for the `angular-todo-app`, a single-page ap
 | Test planning & documentation | 1–2 days |
 | Exploratory testing & bug reporting | 1 day |
 | Playwright infrastructure (fixtures, POM, mock) | 1 day |
-| Writing automated tests (~23 cases) | 2 days |
+| Writing automated tests (46 cases) | 3 days |
 | CI integration and verification | 0.5 day |
 | Review & refinement buffer | 0.5 day |
 
-_Total: approximately 6–7 person-days._
+_Total: approximately 7–8 person-days._
 
 ---
 
@@ -105,7 +105,7 @@ tests/
 ├── pages/
 │   └── todo.page.ts       # Page Object for the ToDo UI
 ├── fixtures.ts            # Playwright custom fixtures
-├── crud.spec.ts           # TC-01 to TC-10: CRUD and filtering
-├── api-behavior.spec.ts   # TC-11 to TC-17: API contract & resilience
-└── validation.spec.ts     # TC-18 to TC-23: input validation & edge cases
+├── crud.spec.ts           # TC-01–TC-10, TC-24–TC-33: UI and filtering (20 tests)
+├── api-behavior.spec.ts   # TC-11–TC-17, TC-34–TC-46: API contract & resilience (20 tests)
+└── validation.spec.ts     # TC-18–TC-23: input validation & edge cases (6 tests)
 ```

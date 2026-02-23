@@ -6,15 +6,15 @@ Defects discovered during exploratory testing, test-code review, and automated A
 
 ## Last Test Run Summary
 
-**Run date:** 2026-02-22 · **Tool:** Playwright + allure-playwright · **Browsers:** Chromium, Firefox, WebKit
+**Run date:** 2026-02-23 · **Tool:** Playwright + allure-playwright · **Browsers:** Chromium (last local run), Firefox + WebKit (CI)
 
-| Status | Unique tests | Total results (×3 browsers) |
-|--------|-------------|----------------------------|
-| ✅ Passed | 21 | 63 |
-| ❌ Failed | 2 | 6 |
-| Total | 23 | 69 |
+| Status | Unique tests (Chromium) | Expected on all 3 browsers |
+|--------|------------------------|---------------------------|
+| ✅ Passed | 42 | 126 |
+| ❌ Failed | 4 | 12 |
+| Total | 46 | 138 |
 
-**2 tests failing across all 3 browsers — details in BUG-07 and updated BUG-04 below.**
+**4 tests failing on all browsers — TC-04 (BUG-07), TC-17, TC-42, TC-43 (BUG-04).**
 
 ---
 

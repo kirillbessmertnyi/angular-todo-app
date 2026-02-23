@@ -108,3 +108,124 @@ test.describe('Filtering', () => {
     await expect(todoPage.taskList).toHaveCount(2);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// New UI tests — TC-24 to TC-33
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('List order', () => {
+  test('TC-24 should prepend a new task to the top of the list', async ({ todoPage }) => {
+    await todoPage.addTask('First');
+    await todoPage.addTask('Second');
+
+    const texts = await todoPage.getTasksText();
+    expect(texts[0]).toBe('Second');
+    expect(texts[1]).toBe('First');
+  });
+
+  test('TC-25 should display tasks in reverse-creation order', async ({ todoPage }) => {
+    await todoPage.addTask('Task A');
+    await todoPage.addTask('Task B');
+    await todoPage.addTask('Task C');
+
+    // Wait for all three tasks to be rendered before reading their order.
+    await expect(todoPage.taskList).toHaveCount(3);
+    const texts = await todoPage.getTasksText();
+    expect(texts).toEqual(['Task C', 'Task B', 'Task A']);
+  });
+});
+
+test.describe('Edit mode UI', () => {
+  test('TC-26 should not show the edit input before Edit is clicked', async ({ todoPage }) => {
+    await todoPage.addTask('Regular task');
+
+    await expect(todoPage.page.locator('.edit-input')).not.toBeVisible();
+  });
+});
+
+test.describe('Task checkbox state', () => {
+  test('TC-27 should display the checkbox as checked for a completed task', async ({
+    todoPage,
+  }) => {
+    await todoPage.addTask('Check me');
+    await todoPage.toggleTask('Check me');
+
+    await expect(
+      todoPage.taskLocator('Check me').locator('.task-checkbox'),
+    ).toBeChecked();
+  });
+});
+
+test.describe('Task isolation', () => {
+  test('TC-28 should only remove the targeted task without affecting others', async ({
+    todoPage,
+  }) => {
+    await todoPage.addTask('Keep A');
+    await todoPage.addTask('Delete me');
+    await todoPage.addTask('Keep B');
+
+    await todoPage.deleteTask('Delete me');
+
+    await expect(todoPage.taskLocator('Keep A')).toBeVisible();
+    await expect(todoPage.taskLocator('Keep B')).toBeVisible();
+    await expect(todoPage.taskList).toHaveCount(2);
+  });
+});
+
+test.describe('Filter UI', () => {
+  test('TC-29 should display all three filter buttons', async ({ todoPage }) => {
+    await expect(todoPage.filters.all).toBeVisible();
+    await expect(todoPage.filters.active).toBeVisible();
+    await expect(todoPage.filters.completed).toBeVisible();
+  });
+
+  test('TC-30 should keep the same task count after cycling through all filters', async ({
+    todoPage,
+  }) => {
+    await todoPage.addTask('Task 1');
+    await todoPage.addTask('Task 2');
+    await todoPage.addTask('Task 3');
+
+    await todoPage.filter('active');
+    await todoPage.filter('completed');
+    await todoPage.filter('all');
+
+    await expect(todoPage.taskList).toHaveCount(3);
+  });
+
+  test('TC-31 should remain stable after clicking the same filter multiple times', async ({
+    todoPage,
+  }) => {
+    await todoPage.addTask('Stable task');
+
+    await todoPage.filter('active');
+    await todoPage.filter('active');
+    await todoPage.filter('active');
+
+    await expect(todoPage.taskLocator('Stable task')).toBeVisible();
+    await expect(todoPage.taskList).toHaveCount(1);
+  });
+});
+
+test.describe('Special content', () => {
+  test('TC-32 should display a task title containing special HTML characters', async ({
+    todoPage,
+  }) => {
+    const title = 'Buy <milk> & "eggs"';
+    await todoPage.addTask(title);
+
+    await expect(todoPage.taskLocator(title)).toBeVisible();
+  });
+});
+
+test.describe('Task controls', () => {
+  test('TC-33 should show Edit and Delete buttons on every task item', async ({ todoPage }) => {
+    await todoPage.addTask('Task Alpha');
+    await todoPage.addTask('Task Beta');
+
+    for (const title of ['Task Alpha', 'Task Beta']) {
+      await expect(todoPage.taskLocator(title).locator('.edit-button')).toBeVisible();
+      await expect(todoPage.taskLocator(title).locator('.delete-button')).toBeVisible();
+    }
+  });
+});
